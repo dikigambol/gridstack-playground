@@ -8,6 +8,7 @@
 - ✅ Container Widget: nesting widget dengan subgrid.
 - ✅ ID unik per widget instance.
 - ✅ Rendering aman via registry.
+- ✅ Save/load layout ke localStorage untuk persistence.
 
 ## 📁 Struktur Folder
 ```
@@ -37,6 +38,7 @@ d:\gridstack-playground\
 3. **Type-Based Rendering**: Simpan `content: { type }`, render via `getWidgetComponent(w.type)`.
 4. **ID Unik**: Generate `crypto.randomUUID()` per widget, persistent save/load.
 5. **Save/Load**: `saveLayout` set `content = { type }`, load set `w.type` dari `content`.
+6. **localStorage**: Save JSON ke localStorage, load & restore tampilan persis.
 
 ## 🔍 Detail Fungsi
 
@@ -59,10 +61,12 @@ d:\gridstack-playground\
 1. `npm install`
 2. `npm run dev`
 3. Drag widget dari sidebar ke grid.
-4. Klik "Simpan Layout" → lihat JSON di console.
+4. Klik "Simpan Layout" → save ke localStorage & console JSON.
+5. Klik "Load Layout" → restore tampilan persis dari localStorage.
 
 ## 📝 Catatan
 - **Keamanan**: No `innerHTML`, React rendering aman.
 - **Performa**: Cache roots & subgrids.
 - **Modular**: Tambah widget di `index.js`.
 - **ID**: Unik, persistent, gunakan untuk state/tracking.
+- **Persistence**: Layout tersimpan di localStorage, load ulang halaman akan hilang (untuk persistence across sessions, gunakan database).

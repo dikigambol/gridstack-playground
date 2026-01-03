@@ -49,41 +49,24 @@ function App() {
   // Inisialisasi callback render GridStack untuk rendering konten yang aman
   useEffect(() => {
     GridStack.renderCB = function (el, w) {
-      // Jika content adalah objek dengan type (dari load), set w.type
-      if (w.content && typeof w.content === 'object' && w.content.type && !w.type) {
-        w.type = w.content.type;
-      }
-      // Pastikan ada id unik
-      if (!w.id) {
-        w.id = crypto.randomUUID();
-      }
-      if (w.type) {
-        // Render komponen berdasarkan type dari registry
-        const Component = getWidgetComponent(w.type);
-        if (Component && !rootsMap.current.has(el)) {
-          const root = createRoot(el);
-          rootsMap.current.set(el, root);
-          root.render(<Component id={w.id} />);
-          // Init subgrid after React mounts inner .grid-stack element
-          requestAnimationFrame(() => {
-            if (w.subGridOpts) {
-              const sub = el.querySelector('.grid-stack');
-              if (sub && !subGridsMap.current.has(sub)) {
-                const sg = GridStack.addGrid(sub, w.subGridOpts);
-                subGridsMap.current.set(sub, sg);
-              }
-            }
-          });
+      try {
+        console.log('renderCB called for:', w.id, w.type, w.content); // Debug
+        // Jika content adalah objek dengan type (dari load), set w.type
+        if (w.content && typeof w.content === 'object' && w.content.type && !w.type) {
+          w.type = w.content.type;
         }
-      } else if (w.content) {
-        if (typeof w.content === 'string') {
-          el.innerHTML = DOMPurify.sanitize(w.content);
-        } else if (React.isValidElement(w.content)) {
-          // Render komponen React hanya jika belum ada root
-          if (!rootsMap.current.has(el)) {
+        // Pastikan ada id unik
+        if (!w.id) {
+          w.id = crypto.randomUUID();
+        }
+        if (w.type) {
+          // Render komponen berdasarkan type dari registry
+          const Component = getWidgetComponent(w.type);
+          console.log('Component for type', w.type, ':', Component); // Debug
+          if (Component && !rootsMap.current.has(el)) {
             const root = createRoot(el);
             rootsMap.current.set(el, root);
-            root.render(w.content);
+            root.render(<Component id={w.id} />);
             // Init subgrid after React mounts inner .grid-stack element
             requestAnimationFrame(() => {
               if (w.subGridOpts) {
@@ -91,11 +74,35 @@ function App() {
                 if (sub && !subGridsMap.current.has(sub)) {
                   const sg = GridStack.addGrid(sub, w.subGridOpts);
                   subGridsMap.current.set(sub, sg);
+                  console.log('Subgrid added for', w.id); // Debug
                 }
               }
             });
           }
+        } else if (w.content) {
+          if (typeof w.content === 'string') {
+            el.innerHTML = DOMPurify.sanitize(w.content);
+          } else if (React.isValidElement(w.content)) {
+            // Render komponen React hanya jika belum ada root
+            if (!rootsMap.current.has(el)) {
+              const root = createRoot(el);
+              rootsMap.current.set(el, root);
+              root.render(w.content);
+              // Init subgrid after React mounts inner .grid-stack element
+              requestAnimationFrame(() => {
+                if (w.subGridOpts) {
+                  const sub = el.querySelector('.grid-stack');
+                  if (sub && !subGridsMap.current.has(sub)) {
+                    const sg = GridStack.addGrid(sub, w.subGridOpts);
+                    subGridsMap.current.set(sub, sg);
+                  }
+                }
+              });
+            }
+          }
         }
+      } catch (error) {
+        console.error('Error in renderCB:', error);
       }
     };
   }, []);
@@ -137,7 +144,7 @@ function App() {
     };
   }, []);
 
-  // Fungsi untuk menyimpan layout grid dan console JSON
+  // Fungsi untuk menyimpan layout grid ke localStorage dan console JSON
   const saveLayout = () => {
     if (grid) {
       const saved = grid.save(true, true);
@@ -155,7 +162,85 @@ function App() {
       };
       processSaved(saved.children || []);
       setSavedOptions(saved);
+      localStorage.setItem('gridLayout', JSON.stringify(saved)); // Simpan ke localStorage
       console.log('Layout JSON:', JSON.stringify(saved, null, 2)); // Console JSON layout
+    }
+  };
+
+  // Fungsi untuk memuat layout dari localStorage
+  const loadLayout = () => {
+    const savedJson = localStorage.getItem('gridLayout');
+    if (savedJson && grid) {
+      try {
+        const saved = JSON.parse(savedJson);
+        console.log('Loading saved:', saved); // Debug
+        // Clear existing roots and subgrids
+        rootsMap.current.clear();
+        subGridsMap.current.clear();
+        // Fungsi rekursif untuk set w.type dari content.type sebelum load
+        const processLoad = (items) => {
+          items.forEach(item => {
+            if (item.content && typeof item.content === 'object' && item.content.type) {
+              item.type = item.content.type;
+              console.log('Set type for item:', item.id, item.type); // Debug
+            }
+            if (item.subGridOpts && item.subGridOpts.children) {
+              processLoad(item.subGridOpts.children);
+            }
+          });
+        };
+        processLoad(saved.children || []);
+        // Manual load: add widgets one-by-one so renderCB runs and subgrids can be initialized
+        grid.removeAll(); // Clear existing widgets
+        const addItemsToGrid = (items, targetGrid) => {
+          items.forEach(item => {
+            const children = item.subGridOpts?.children || [];
+            // clone and remove nested children from subGridOpts for add
+            const subGridOpts = item.subGridOpts ? { ...item.subGridOpts } : undefined;
+            if (subGridOpts && subGridOpts.children) delete subGridOpts.children;
+
+            const widgetForAdd = { ...item, subGridOpts };
+            // If content has a type, convert to React element so renderCB will render it
+            if (widgetForAdd.content && typeof widgetForAdd.content === 'object' && widgetForAdd.content.type) {
+              const Comp = getWidgetComponent(widgetForAdd.content.type);
+              if (Comp) widgetForAdd.content = React.createElement(Comp, { id: widgetForAdd.id });
+            }
+
+            // Add widget to target grid
+            const added = targetGrid.addWidget(widgetForAdd);
+            console.log('Added widget', item.id, 'to grid', targetGrid.el?.id || 'subgrid', added);
+
+            // If there are nested children, initialize subgrid after widget mounts
+            if (children && children.length) {
+              requestAnimationFrame(() => {
+                try {
+                  const el = typeof added?.el !== 'undefined' ? added.el : added;
+                  const sub = el && el.querySelector ? el.querySelector('.grid-stack') : null;
+                  if (sub) {
+                    const sg = GridStack.addGrid(sub, subGridOpts || {});
+                    subGridsMap.current.set(sub, sg);
+                    console.log('Created subgrid for', item.id);
+                    addItemsToGrid(children, sg);
+                  } else {
+                    console.warn('No sub container found for item', item.id);
+                  }
+                } catch (err) {
+                  console.error('Error initializing subgrid for', item.id, err);
+                }
+              });
+            }
+          });
+        };
+
+        addItemsToGrid(saved.children || [], grid);
+        console.log('Grid children after manual load:', grid.engine?.nodes || grid.children);
+        setSavedOptions(saved);
+        console.log('Layout loaded from localStorage (manual)');
+      } catch (error) {
+        console.error('Error loading layout:', error);
+      }
+    } else {
+      console.log('No layout found in localStorage or grid not ready');
     }
   };
 
@@ -177,7 +262,9 @@ function App() {
     <div className="container-fluid">
       <h1>Nested grids demo di React Vite</h1>
       <div className="actions" style={{ display: 'flex', flexDirection: 'row', gap: '5px' }}>
-        <button className="btn btn-primary" onClick={saveLayout}>Simpan Layout</button> {/* Simpan layout dan console JSON */}
+        <button className="btn btn-primary" onClick={saveLayout}>Simpan Layout</button> {/* Simpan layout ke localStorage dan console JSON */}
+        <button className="btn btn-secondary" onClick={loadLayout}>Load Layout</button> {/* Load layout dari localStorage */}
+        <button className="btn btn-danger" onClick={destroyGrid}>Hancurkan Grid</button> {/* Hancurkan grid */}
       </div>
 
       {/* Komponen sidebar drag */}
