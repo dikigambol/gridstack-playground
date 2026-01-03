@@ -193,8 +193,6 @@ function App() {
         // Manual load: add widgets one-by-one so renderCB runs and subgrids can be initialized
         grid.removeAll(); // Clear existing widgets
         
-        const MAX_NESTED_LEVEL = 4; // Batasi nested level sampai 4 level
-        
         // Helper function to wait for .grid-stack element to be available
         const waitForGridStack = (el, callback, retries = 50) => {
           if (retries <= 0) {
@@ -231,8 +229,8 @@ function App() {
             const added = targetGrid.addWidget(widgetForAdd);
             console.log('Added widget', item.id, 'at level', currentLevel);
 
-            // If there are nested children and we haven't reached max level, initialize subgrid after widget mounts
-            if (children && children.length && currentLevel < MAX_NESTED_LEVEL) {
+            // If there are nested children, initialize subgrid after widget mounts
+            if (children && children.length) {
               const el = typeof added?.el !== 'undefined' ? added.el : added;
               // Use setTimeout with increasing delay for deeper levels to ensure React has time to render
               const delay = currentLevel * 50; // 50ms per level
@@ -257,8 +255,6 @@ function App() {
                   }
                 });
               }, delay);
-            } else if (children && children.length && currentLevel >= MAX_NESTED_LEVEL) {
-              console.warn('Skipping nested children for item', item.id, '- max nested level reached (', MAX_NESTED_LEVEL, ')');
             }
           });
         };
