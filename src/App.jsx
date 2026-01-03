@@ -6,47 +6,7 @@ import DOMPurify from 'dompurify';
 import 'gridstack/dist/gridstack.min.css'; // Import CSS GridStack untuk styling grid
 import './App.css'; // CSS tambahan jika diperlukan
 import SidebarDrag from './SidebarDrag'; // Import komponen sidebar drag
-
-// Komponen dinamis untuk konten widget
-const NestedWidget = () => (
-  <div className="widget-header" style={{ padding: '5px', backgroundColor: 'navy', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '30px', boxSizing: 'border-box', zIndex: 10, cursor: 'grab' }}>
-    <h4 style={{ margin: 0, fontSize: '14px' }}>Nested Widget</h4>
-    <button
-      onMouseDown={e => e.stopPropagation()}
-      onPointerDown={e => e.stopPropagation()}
-      onClick={() => alert('Setting clicked!')}
-      style={{ padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
-    >
-      Setting
-    </button>
-  </div>
-);
-
-const TextWidget = () => (
-  <div style={{ height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-    <div className="widget-header" style={{ padding: '5px', backgroundColor: '#e0e0e0', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '30px', boxSizing: 'border-box', zIndex: 10, cursor: 'grab' }}>
-      <h4 style={{ margin: 0, fontSize: '14px' }}>Text Widget</h4>
-      <button
-        onMouseDown={e => e.stopPropagation()}
-        onPointerDown={e => e.stopPropagation()}
-        onClick={() => alert('Setting clicked!')}
-        style={{ padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
-      >
-        Setting
-      </button>
-    </div>
-    <div style={{ padding: '10px', backgroundColor: '#f0f8ff', border: '1px solid #add8e6', borderRadius: '4px', textAlign: 'center', flex: 1, boxSizing: 'border-box' }}>
-      <p
-        onClick={() => console.log('anjay')}
-        onMouseDown={e => e.stopPropagation()}
-        onPointerDown={e => e.stopPropagation()}
-        style={{ cursor: 'pointer' }}
-      >
-        Widget Teks
-      </p>
-    </div>
-  </div>
-);
+import { getWidgetComponent } from './components'; // Import fungsi untuk mendapatkan komponen widget
 
 function App() {
   // State untuk menyimpan opsi grid tersimpan
@@ -89,7 +49,33 @@ function App() {
   // Inisialisasi callback render GridStack untuk rendering konten yang aman
   useEffect(() => {
     GridStack.renderCB = function (el, w) {
-      if (w.content) {
+      // Jika content adalah objek dengan type (dari load), set w.type
+      if (w.content && typeof w.content === 'object' && w.content.type && !w.type) {
+        w.type = w.content.type;
+      }
+      // Pastikan ada id unik
+      if (!w.id) {
+        w.id = crypto.randomUUID();
+      }
+      if (w.type) {
+        // Render komponen berdasarkan type dari registry
+        const Component = getWidgetComponent(w.type);
+        if (Component && !rootsMap.current.has(el)) {
+          const root = createRoot(el);
+          rootsMap.current.set(el, root);
+          root.render(<Component id={w.id} />);
+          // Init subgrid after React mounts inner .grid-stack element
+          requestAnimationFrame(() => {
+            if (w.subGridOpts) {
+              const sub = el.querySelector('.grid-stack');
+              if (sub && !subGridsMap.current.has(sub)) {
+                const sg = GridStack.addGrid(sub, w.subGridOpts);
+                subGridsMap.current.set(sub, sg);
+              }
+            }
+          });
+        }
+      } else if (w.content) {
         if (typeof w.content === 'string') {
           el.innerHTML = DOMPurify.sanitize(w.content);
         } else if (React.isValidElement(w.content)) {
@@ -124,12 +110,9 @@ function App() {
       const sidebarContentNested = [
         {
           w: 5, h: 5,
-          content: (
-            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-              <NestedWidget />
-              <div className="grid-stack" style={{ flex: 1, minHeight: 0, overflow: 'auto', backgroundColor: 'yellow' }} />
-            </div>
-          ),
+          id: crypto.randomUUID(),
+          type: 'Container Widget',
+          content: { type: 'Container Widget' },
           subGridOpts: {
             children: [],
             acceptWidgets: true,
@@ -137,7 +120,7 @@ function App() {
         }
       ];
       const sidebarContentText = [
-        { w: 2, h: 3, content: <TextWidget /> }
+        { w: 2, h: 3, id: crypto.randomUUID(), type: 'Text Widget', content: { type: 'Text Widget' } }
       ];
       GridStack.setupDragIn('.sidebar-item-nested', undefined, sidebarContentNested);
       GridStack.setupDragIn('.sidebar-item-text', undefined, sidebarContentText);
@@ -158,6 +141,19 @@ function App() {
   const saveLayout = () => {
     if (grid) {
       const saved = grid.save(true, true);
+      // Fungsi rekursif untuk mengganti content dengan type dan hapus type
+      const processSaved = (items) => {
+        items.forEach(item => {
+          if (item.type) {
+            item.content = { type: item.type };
+            delete item.type;
+          }
+          if (item.subGridOpts && item.subGridOpts.children) {
+            processSaved(item.subGridOpts.children);
+          }
+        });
+      };
+      processSaved(saved.children || []);
       setSavedOptions(saved);
       console.log('Layout JSON:', JSON.stringify(saved, null, 2)); // Console JSON layout
     }
