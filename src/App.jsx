@@ -192,7 +192,31 @@ function App() {
         processLoad(saved.children || []);
         // Manual load: add widgets one-by-one so renderCB runs and subgrids can be initialized
         grid.removeAll(); // Clear existing widgets
-        const addItemsToGrid = (items, targetGrid) => {
+        
+        const MAX_NESTED_LEVEL = 4; // Batasi nested level sampai 4 level
+        
+        // Helper function to wait for .grid-stack element to be available
+        const waitForGridStack = (el, callback, retries = 50) => {
+          if (retries <= 0) {
+            console.warn('Timeout waiting for .grid-stack element');
+            callback(null);
+            return;
+          }
+          
+          const sub = el && el.querySelector ? el.querySelector('.grid-stack') : null;
+          if (sub) {
+            callback(sub);
+          } else {
+            // Use double requestAnimationFrame for better timing with React
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                waitForGridStack(el, callback, retries - 1);
+              });
+            });
+          }
+        };
+        
+        const addItemsToGrid = (items, targetGrid, currentLevel = 1) => {
           items.forEach(item => {
             const children = item.subGridOpts?.children || [];
             // clone and remove nested children from subGridOpts for add
@@ -200,39 +224,46 @@ function App() {
             if (subGridOpts && subGridOpts.children) delete subGridOpts.children;
 
             const widgetForAdd = { ...item, subGridOpts };
-            // If content has a type, convert to React element so renderCB will render it
-            if (widgetForAdd.content && typeof widgetForAdd.content === 'object' && widgetForAdd.content.type) {
-              const Comp = getWidgetComponent(widgetForAdd.content.type);
-              if (Comp) widgetForAdd.content = React.createElement(Comp, { id: widgetForAdd.id });
-            }
+            // Don't convert content - let renderCB handle it based on type
+            // processLoad already set item.type from item.content.type
 
             // Add widget to target grid
             const added = targetGrid.addWidget(widgetForAdd);
-            console.log('Added widget', item.id, 'to grid', targetGrid.el?.id || 'subgrid', added);
+            console.log('Added widget', item.id, 'at level', currentLevel);
 
-            // If there are nested children, initialize subgrid after widget mounts
-            if (children && children.length) {
-              requestAnimationFrame(() => {
-                try {
-                  const el = typeof added?.el !== 'undefined' ? added.el : added;
-                  const sub = el && el.querySelector ? el.querySelector('.grid-stack') : null;
+            // If there are nested children and we haven't reached max level, initialize subgrid after widget mounts
+            if (children && children.length && currentLevel < MAX_NESTED_LEVEL) {
+              const el = typeof added?.el !== 'undefined' ? added.el : added;
+              // Use setTimeout with increasing delay for deeper levels to ensure React has time to render
+              const delay = currentLevel * 50; // 50ms per level
+              setTimeout(() => {
+                waitForGridStack(el, (sub) => {
                   if (sub) {
-                    const sg = GridStack.addGrid(sub, subGridOpts || {});
-                    subGridsMap.current.set(sub, sg);
-                    console.log('Created subgrid for', item.id);
-                    addItemsToGrid(children, sg);
+                    try {
+                      if (!subGridsMap.current.has(sub)) {
+                        const sg = GridStack.addGrid(sub, subGridOpts || {});
+                        subGridsMap.current.set(sub, sg);
+                        console.log('Created subgrid for', item.id, 'at level', currentLevel);
+                        addItemsToGrid(children, sg, currentLevel + 1);
+                      } else {
+                        const sg = subGridsMap.current.get(sub);
+                        addItemsToGrid(children, sg, currentLevel + 1);
+                      }
+                    } catch (err) {
+                      console.error('Error initializing subgrid for', item.id, err);
+                    }
                   } else {
-                    console.warn('No sub container found for item', item.id);
+                    console.warn('No sub container found for item', item.id, 'at level', currentLevel);
                   }
-                } catch (err) {
-                  console.error('Error initializing subgrid for', item.id, err);
-                }
-              });
+                });
+              }, delay);
+            } else if (children && children.length && currentLevel >= MAX_NESTED_LEVEL) {
+              console.warn('Skipping nested children for item', item.id, '- max nested level reached (', MAX_NESTED_LEVEL, ')');
             }
           });
         };
 
-        addItemsToGrid(saved.children || [], grid);
+        addItemsToGrid(saved.children || [], grid, 1);
         console.log('Grid children after manual load:', grid.engine?.nodes || grid.children);
         setSavedOptions(saved);
         console.log('Layout loaded from localStorage (manual)');
