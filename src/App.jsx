@@ -8,15 +8,43 @@ import './App.css'; // CSS tambahan jika diperlukan
 import SidebarDrag from './SidebarDrag'; // Import komponen sidebar drag
 
 // Komponen dinamis untuk konten widget
-const HeaderWidget = () => (
-  <div style={{ padding: '5px', backgroundColor: '#e0e0e0', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'absolute', top: 0, left: 0, right: 0, height: '30px', boxSizing: 'border-box', zIndex: 10 }}>
-    <h4 style={{ margin: 0, fontSize: '14px' }}>Nested Header</h4>
-    <button onClick={() => alert('Setting clicked!')} style={{ padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}>Setting</button>
+const NestedWidget = () => (
+  <div className="widget-header" style={{ padding: '5px', backgroundColor: 'navy', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '30px', boxSizing: 'border-box', zIndex: 10, cursor: 'grab' }}>
+    <h4 style={{ margin: 0, fontSize: '14px' }}>Nested Widget</h4>
+    <button
+      onMouseDown={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onClick={() => alert('Setting clicked!')}
+      style={{ padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+    >
+      Setting
+    </button>
   </div>
 );
+
 const TextWidget = () => (
-  <div style={{ padding: '10px', backgroundColor: '#f0f8ff', border: '1px solid #add8e6', borderRadius: '4px', textAlign: 'center', height: '100%', width: '100%', boxSizing: 'border-box' }}>
-    <p onClick={() => console.log('anjay')} style={{ "cursor": "pointer" }}>Widget Teks</p>
+  <div style={{ height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+    <div className="widget-header" style={{ padding: '5px', backgroundColor: '#e0e0e0', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '30px', boxSizing: 'border-box', zIndex: 10, cursor: 'grab' }}>
+      <h4 style={{ margin: 0, fontSize: '14px' }}>Text Widget</h4>
+      <button
+        onMouseDown={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
+        onClick={() => alert('Setting clicked!')}
+        style={{ padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+      >
+        Setting
+      </button>
+    </div>
+    <div style={{ padding: '10px', backgroundColor: '#f0f8ff', border: '1px solid #add8e6', borderRadius: '4px', textAlign: 'center', flex: 1, boxSizing: 'border-box' }}>
+      <p
+        onClick={() => console.log('anjay')}
+        onMouseDown={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
+        style={{ cursor: 'pointer' }}
+      >
+        Widget Teks
+      </p>
+    </div>
   </div>
 );
 
@@ -29,6 +57,8 @@ function App() {
   const [grid, setGrid] = useState(null);
   // Map untuk menyimpan root React per elemen grid
   const rootsMap = useRef(new Map());
+  // Map untuk menyimpan instance subgrids
+  const subGridsMap = useRef(new Map());
 
   // Definisi data subgrid untuk sidebar drag
   const sub1 = [
@@ -50,6 +80,8 @@ function App() {
     acceptWidgets: true,
     id: 'main',
     resizable: { handles: 'se,e,s,sw,w' },
+    // Hanya drag lewat elemen dengan class .widget-header
+    draggable: { handle: '.widget-header' },
     minRow: 10, // Pastikan grid terlihat meski kosong
     children: [] // Grid kosong, isi dengan drag
   };
@@ -66,6 +98,16 @@ function App() {
             const root = createRoot(el);
             rootsMap.current.set(el, root);
             root.render(w.content);
+            // Init subgrid after React mounts inner .grid-stack element
+            requestAnimationFrame(() => {
+              if (w.subGridOpts) {
+                const sub = el.querySelector('.grid-stack');
+                if (sub && !subGridsMap.current.has(sub)) {
+                  const sg = GridStack.addGrid(sub, w.subGridOpts);
+                  subGridsMap.current.set(sub, sg);
+                }
+              }
+            });
           }
         }
       }
@@ -82,7 +124,12 @@ function App() {
       const sidebarContentNested = [
         {
           w: 5, h: 5,
-          // content: <HeaderWidget />,
+          content: (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+              <NestedWidget />
+              <div className="grid-stack" style={{ flex: 1, minHeight: 0, overflow: 'auto', backgroundColor: 'yellow' }} />
+            </div>
+          ),
           subGridOpts: {
             children: [],
             acceptWidgets: true,
@@ -90,7 +137,7 @@ function App() {
         }
       ];
       const sidebarContentText = [
-        { w: 2, h: 2, content: <TextWidget /> }
+        { w: 2, h: 3, content: <TextWidget /> }
       ];
       GridStack.setupDragIn('.sidebar-item-nested', undefined, sidebarContentNested);
       GridStack.setupDragIn('.sidebar-item-text', undefined, sidebarContentText);
@@ -102,6 +149,8 @@ function App() {
     return () => {
       rootsMap.current.forEach(root => root.unmount());
       rootsMap.current.clear();
+      subGridsMap.current.forEach(sg => sg.destroy());
+      subGridsMap.current.clear();
     };
   }, []);
 
@@ -123,6 +172,8 @@ function App() {
       // Cleanup roots
       rootsMap.current.forEach(root => root.unmount());
       rootsMap.current.clear();
+      subGridsMap.current.forEach(sg => sg.destroy());
+      subGridsMap.current.clear();
     }
   };
 
