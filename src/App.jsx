@@ -131,6 +131,9 @@ function App() {
       ];
       GridStack.setupDragIn('.sidebar-item-nested', undefined, sidebarContentNested);
       GridStack.setupDragIn('.sidebar-item-text', undefined, sidebarContentText);
+
+      // Load layout otomatis dari localStorage setelah grid siap
+      loadLayout(newGrid);
     }
   }, []);
 
@@ -168,9 +171,9 @@ function App() {
   };
 
   // Fungsi untuk memuat layout dari localStorage
-  const loadLayout = () => {
+  const loadLayout = (gridInstance) => {
     const savedJson = localStorage.getItem('gridLayout');
-    if (savedJson && grid) {
+    if (savedJson && gridInstance) {
       try {
         const saved = JSON.parse(savedJson);
         console.log('Loading saved:', saved); // Debug
@@ -191,7 +194,7 @@ function App() {
         };
         processLoad(saved.children || []);
         // Manual load: add widgets one-by-one so renderCB runs and subgrids can be initialized
-        grid.removeAll(); // Clear existing widgets
+        gridInstance.removeAll(); // Clear existing widgets
         
         // Helper function to wait for .grid-stack element to be available
         const waitForGridStack = (el, callback, retries = 50) => {
@@ -259,8 +262,8 @@ function App() {
           });
         };
 
-        addItemsToGrid(saved.children || [], grid, 1);
-        console.log('Grid children after manual load:', grid.engine?.nodes || grid.children);
+        addItemsToGrid(saved.children || [], gridInstance, 1);
+        console.log('Grid children after manual load:', gridInstance.engine?.nodes || gridInstance.children);
         setSavedOptions(saved);
         console.log('Layout loaded from localStorage (manual)');
       } catch (error) {
@@ -290,7 +293,6 @@ function App() {
       <h1>Nested grids demo di React Vite</h1>
       <div className="actions" style={{ display: 'flex', flexDirection: 'row', gap: '5px' }}>
         <button className="btn btn-primary" onClick={saveLayout}>Simpan Layout</button> {/* Simpan layout ke localStorage dan console JSON */}
-        <button className="btn btn-secondary" onClick={loadLayout}>Load Layout</button> {/* Load layout dari localStorage */}
         <button className="btn btn-danger" onClick={destroyGrid}>Hancurkan Grid</button> {/* Hancurkan grid */}
       </div>
 
