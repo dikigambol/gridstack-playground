@@ -25,6 +25,7 @@ d:\gridstack-playground\
 - ✅ Nested grid unlimited level support
 - ✅ Drag & drop dari sidebar ke grid
 - ✅ Save/Load layout ke localStorage
+- ✅ **Auto-load layout dari localStorage pada startup**
 - ✅ Rendering aman dengan React (no innerHTML)
 - ✅ ID unik per widget instance
 - ✅ Type-based rendering system
@@ -357,26 +358,41 @@ const processSaved = (items) => {
 ### 5.1 Fungsi loadLayout
 
 ```jsx
-const loadLayout = () => {
+const loadLayout = (gridInstance) => {
   const savedJson = localStorage.getItem('gridLayout');
-  if (savedJson && grid) {
-    const saved = JSON.parse(savedJson);
-    
-    // 1. Clear existing state
-    rootsMap.current.clear();
-    subGridsMap.current.clear();
-    
-    // 2. Process data: set type dari content.type
-    processLoad(saved.children || []);
-    
-    // 3. Clear grid
-    grid.removeAll();
-    
-    // 4. Load widgets secara manual (rekursif)
-    addItemsToGrid(saved.children || [], grid, 1);
+  if (savedJson && gridInstance) {
+    try {
+      const saved = JSON.parse(savedJson);
+      console.log('Loading saved:', saved); // Debug
+      
+      // 1. Clear existing state
+      rootsMap.current.clear();
+      subGridsMap.current.clear();
+      
+      // 2. Process data: set type dari content.type
+      processLoad(saved.children || []);
+      
+      // 3. Clear grid
+      gridInstance.removeAll();
+      
+      // 4. Load widgets secara manual (rekursif)
+      addItemsToGrid(saved.children || [], gridInstance, 1);
+      
+      setSavedOptions(saved);
+      console.log('Layout loaded from localStorage (manual)');
+    } catch (error) {
+      console.error('Error loading layout:', error);
+    }
+  } else {
+    console.log('No layout found in localStorage or grid not ready');
   }
 };
 ```
+
+**Perubahan terbaru:**
+- Fungsi sekarang menerima `gridInstance` sebagai parameter (bukan menggunakan state `grid`)
+- Ditambahkan try-catch untuk error handling
+- Load otomatis dipanggil di `useEffect` setelah grid diinisialisasi
 
 ### 5.2 Process Load Data
 
@@ -405,11 +421,12 @@ Fungsi untuk menunggu React element ter-mount:
 ```jsx
 const waitForGridStack = (el, callback, retries = 50) => {
   if (retries <= 0) {
+    console.warn('Timeout waiting for .grid-stack element');
     callback(null);
     return;
   }
   
-  const sub = el.querySelector('.grid-stack');
+  const sub = el && el.querySelector ? el.querySelector('.grid-stack') : null;
   if (sub) {
     callback(sub);
   } else {
@@ -422,6 +439,10 @@ const waitForGridStack = (el, callback, retries = 50) => {
   }
 };
 ```
+
+**Perubahan terbaru:**
+- Ditambahkan pengecekan `el && el.querySelector` untuk menghindari error jika `el` tidak valid
+- Ditambahkan console.warn untuk timeout
 
 **Kenapa perlu waitForGridStack?**
 - React element butuh waktu untuk mount ke DOM
@@ -445,6 +466,7 @@ const addItemsToGrid = (items, targetGrid, currentLevel = 1) => {
     // 3. Add widget ke grid
     const widgetForAdd = { ...item, subGridOpts };
     const added = targetGrid.addWidget(widgetForAdd);
+    console.log('Added widget', item.id, 'at level', currentLevel);
     
     // 4. Jika ada children, init subgrid dan load children
     if (children && children.length) {
@@ -454,11 +476,21 @@ const addItemsToGrid = (items, targetGrid, currentLevel = 1) => {
       setTimeout(() => {
         waitForGridStack(el, (sub) => {
           if (sub) {
-            const sg = GridStack.addGrid(sub, subGridOpts || {});
-            subGridsMap.current.set(sub, sg);
-            
-            // Rekursif: load children ke subgrid
-            addItemsToGrid(children, sg, currentLevel + 1);
+            try {
+              if (!subGridsMap.current.has(sub)) {
+                const sg = GridStack.addGrid(sub, subGridOpts || {});
+                subGridsMap.current.set(sub, sg);
+                console.log('Created subgrid for', item.id, 'at level', currentLevel);
+                addItemsToGrid(children, sg, currentLevel + 1);
+              } else {
+                const sg = subGridsMap.current.get(sub);
+                addItemsToGrid(children, sg, currentLevel + 1);
+              }
+            } catch (err) {
+              console.error('Error initializing subgrid for', item.id, err);
+            }
+          } else {
+            console.warn('No sub container found for item', item.id, 'at level', currentLevel);
           }
         });
       }, delay);
@@ -466,6 +498,13 @@ const addItemsToGrid = (items, targetGrid, currentLevel = 1) => {
   });
 };
 ```
+
+**Perubahan terbaru:**
+- Ditambahkan try-catch untuk error handling saat inisialisasi subgrid
+- Ditambahkan pengecekan jika subgrid sudah ada di `subGridsMap`, gunakan yang existing
+- Ditambahkan log detail untuk debugging: "Added widget", "Created subgrid", dll.
+- Ditambahkan console.warn jika tidak ada sub container
+- Ditambahkan komentar yang lebih jelas
 
 **Alur Load:**
 1. Load widget level 1 → Add ke main grid
@@ -481,6 +520,32 @@ const addItemsToGrid = (items, targetGrid, currentLevel = 1) => {
 - GridStack's `grid.load()` tidak handle nested structure dengan baik di React
 - Manual load memastikan `renderCB` dipanggil untuk setiap widget
 - Lebih control atas timing dan error handling
+
+---
+
+## 5.5 Load Otomatis pada Startup
+
+Layout akan dimuat otomatis dari localStorage saat aplikasi pertama kali dimuat:
+
+```jsx
+// Di useEffect inisialisasi grid
+useEffect(() => {
+  if (gridContainerRef.current) {
+    const newGrid = GridStack.addGrid(gridContainerRef.current, options);
+    setGrid(newGrid);
+    
+    // ... setup drag drop ...
+    
+    // Load layout otomatis dari localStorage setelah grid siap
+    loadLayout(newGrid);
+  }
+}, []);
+```
+
+**Fitur ini memungkinkan:**
+- Layout tersimpan akan langsung muncul saat refresh halaman
+- Tidak perlu klik tombol "Load Layout" manual
+- State aplikasi persistent across browser sessions
 
 ---
 
@@ -550,10 +615,11 @@ useEffect(() => {
    ```
 
 3. **Penggunaan:**
+   - Layout akan dimuat otomatis dari penyimpanan sebelumnya saat aplikasi start
    - Drag widget dari sidebar ke grid
    - Drag widget ke dalam Container Widget (nested grid)
    - Klik "Simpan Layout" → save ke localStorage
-   - Klik "Load Layout" → restore dari localStorage
+   - Klik "Load Layout" → restore dari localStorage (jika diperlukan manual)
 
 ---
 
@@ -599,3 +665,8 @@ useEffect(() => {
 ### Memory leak
 - Pastikan cleanup di unmount dipanggil
 - Check `rootsMap` dan `subGridsMap` di clear dengan benar
+
+### Error saat load layout
+- Check console untuk error messages (try-catch blocks)
+- Pastikan data di localStorage valid JSON
+- Jika subgrid gagal init, check apakah Container Widget memiliki `.grid-stack` element
